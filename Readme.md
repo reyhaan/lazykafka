@@ -1,5 +1,7 @@
 # Client for Apache Kafka written in GO
 
+NOTE: This is a stripped down version of Shopify/Sarama Kafka GO client. I wanted to learn how they did it so I have applied some reverse engineering and started building it from the very bottom. 
+
 ### Example:
 
 ```
