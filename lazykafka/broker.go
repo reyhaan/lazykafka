@@ -12,15 +12,16 @@ import (
 
 // Broker we'll use to connect to the kafka cluster
 type Broker struct {
-	id        int32
-	addr      string
-	conf      *Config
-	conn      net.Conn
-	connErr   error
-	lock      sync.Mutex
-	opened    int32
-	responses chan responsePromise
-	done      chan bool
+	id            int32
+	addr          string
+	conf          *Config
+	conn          net.Conn
+	connErr       error
+	lock          sync.Mutex
+	opened        int32
+	responses     chan responsePromise
+	done          chan bool
+	correlationID int32
 }
 
 type responsePromise struct {
@@ -60,14 +61,15 @@ func (b *Broker) Open(conf *Config) error {
 		} else {
 			b.conn, b.connErr = dialer.Dial("tcp", b.addr)
 		}
+
 		if b.connErr != nil {
 			Logger.Printf("Failed to connect to broker %s: %s\n", b.addr, b.connErr)
 			b.conn = nil
 			atomic.StoreInt32(&b.opened, 0)
 			return
 		}
-		b.conn = newBufConn(b.conn)
 
+		b.conn = newBufConn(b.conn)
 		b.conf = conf
 
 		b.done = make(chan bool)
@@ -178,4 +180,76 @@ func (b *Broker) responseReceiver() {
 		response.packets <- buf
 	}
 	close(b.done)
+}
+
+// CreateTopics blah
+func (b *Broker) CreateTopics(request *CreateTopicsRequest) (*CreateTopicsResponse, error) {
+	response := new(CreateTopicsResponse)
+
+	err := b.sendAndReceive(request, response)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func (b *Broker) send(rb protocolBody, promiseResponse bool) (*responsePromise, error) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	if b.conn == nil {
+		if b.connErr != nil {
+			return nil, b.connErr
+		}
+		return nil, ErrNotConnected
+	}
+
+	req := &request{correlationID: b.correlationID, clientID: b.conf.ClientID, body: rb}
+	buf, err := encode(req)
+	if err != nil {
+		return nil, err
+	}
+
+	err = b.conn.SetWriteDeadline(time.Now().Add(b.conf.Net.WriteTimeout))
+	if err != nil {
+		return nil, err
+	}
+
+	requestTime := time.Now()
+	bytes, err := b.conn.Write(buf)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(bytes)
+	b.correlationID++
+
+	if !promiseResponse {
+		// Record request latency without the response
+		return nil, nil
+	}
+
+	promise := responsePromise{requestTime, req.correlationID, make(chan []byte), make(chan error)}
+	b.responses <- promise
+
+	return &promise, nil
+}
+
+func (b *Broker) sendAndReceive(req protocolBody, res versionedDecoder) error {
+	promise, err := b.send(req, res != nil)
+
+	if err != nil {
+		return err
+	}
+
+	if promise == nil {
+		return nil
+	}
+
+	select {
+	case buf := <-promise.packets:
+		return versionedDecode(buf, res, req.version())
+	case err = <-promise.errors:
+		return err
+	}
 }

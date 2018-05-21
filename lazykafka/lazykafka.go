@@ -6,7 +6,7 @@ import (
 )
 
 // Logger blah
-var Logger StdLogger = log.New(ioutil.Discard, "[Sarama] ", log.LstdFlags)
+var Logger StdLogger = log.New(ioutil.Discard, "[LazyKafka] ", log.LstdFlags)
 
 // StdLogger is used to log error messages.
 type StdLogger interface {

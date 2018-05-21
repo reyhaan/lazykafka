@@ -85,3 +85,10 @@ func newBufConn(conn net.Conn) *bufConn {
 func (bc *bufConn) Read(b []byte) (n int, err error) {
 	return bc.buf.Read(b)
 }
+
+// KafkaVersion instances represent versions of the upstream Kafka broker.
+type KafkaVersion struct {
+	// it's a struct rather than just typing the array directly to make it opaque and stop people
+	// generating their own arbitrary versions
+	version [4]uint
+}
